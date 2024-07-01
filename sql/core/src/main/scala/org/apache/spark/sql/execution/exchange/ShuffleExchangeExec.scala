@@ -265,6 +265,7 @@ object ShuffleExchangeExec {
       serializer: Serializer,
       writeMetrics: Map[String, SQLMetric])
     : ShuffleDependency[Int, InternalRow, InternalRow] = {
+    // 根据 Partitioning 分布创建对应的 Partitioner 分区器
     val part: Partitioner = newPartitioning match {
       case RoundRobinPartitioning(numPartitions) => new HashPartitioner(numPartitions)
       case HashPartitioning(_, n) =>
@@ -313,7 +314,9 @@ object ShuffleExchangeExec {
           position
         }
       case h: HashPartitioning =>
-        val projection = UnsafeProjection.create(h.partitionIdExpression :: Nil, outputAttributes)
+        // 根据 h.partitionIdExpression 创建一个 Projection
+        val projection: UnsafeProjection = UnsafeProjection.create(h.partitionIdExpression :: Nil, outputAttributes)
+        // projection(row) 返回 UnsafeRow，get(0) 获取 row 中的 int 值，即 partitionId 值
         row => projection(row).getInt(0)
       case RangePartitioning(sortingExpressions, _) =>
         val projection = UnsafeProjection.create(sortingExpressions.map(_.child), outputAttributes)
@@ -380,11 +383,15 @@ object ShuffleExchangeExec {
           iter.map { row => (part.getPartition(getPartitionKey(row)), row.copy()) }
         }, isOrderSensitive = isOrderSensitive)
       } else {
-        newRdd.mapPartitionsWithIndexInternal((_, iter) => {
-          val getPartitionKey = getPartitionKeyExtractor()
+        // RDD[MutablePair[Int, InternalRow]]  => RDD[Product2[Int, InternalRow]]
+        val value: RDD[Product2[Int, InternalRow]] = newRdd.mapPartitionsWithIndexInternal((_, iter) => {
+          val getPartitionKey: InternalRow => Any = getPartitionKeyExtractor()
           val mutablePair = new MutablePair[Int, InternalRow]()
+          // part.getPartition(key: Any) 根据对于的 Partitioner，获取 key 对应的 partitionId
+          // 而这里的 getPartitionKey 内部根据 row 进行了一次 hash
           iter.map { row => mutablePair.update(part.getPartition(getPartitionKey(row)), row) }
         }, isOrderSensitive = isOrderSensitive)
+        value
       }
     }
 

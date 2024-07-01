@@ -60,7 +60,8 @@ case class EnsureRequirements(
     assert(requiredChildDistributions.length == originalChildren.length)
     assert(requiredChildOrderings.length == originalChildren.length)
     // Ensure that the operator's children satisfy their output distribution requirements.
-    var children = originalChildren.zip(requiredChildDistributions).map {
+    // askwang-todo: outputPartitioning 和 distribution 的计算来源？
+    var children: Seq[SparkPlan] = originalChildren.zip(requiredChildDistributions).map {
       case (child, distribution) if child.outputPartitioning.satisfies(distribution) =>
         child
       case (child, BroadcastDistribution(mode)) =>
@@ -68,6 +69,8 @@ case class EnsureRequirements(
       case (child, distribution) =>
         val numPartitions = distribution.requiredNumPartitions
           .getOrElse(conf.numShufflePartitions)
+        // 如果 child 节点的 outputPartitioning 不满足父节点的 distribution，
+        // 则添加一个 outputPartition = HashPartitioning 新 Exchange 节点，其子节点为 child
         ShuffleExchangeExec(distribution.createPartitioning(numPartitions), child, shuffleOrigin)
     }
 
@@ -577,10 +580,10 @@ case class EnsureRequirements(
   }
 
   def apply(plan: SparkPlan): SparkPlan = {
-    val newPlan = plan.transformUp {
-      case operator @ ShuffleExchangeExec(upper: HashPartitioning, child, shuffleOrigin)
-          if optimizeOutRepartition &&
-            (shuffleOrigin == REPARTITION_BY_COL || shuffleOrigin == REPARTITION_BY_NUM) =>
+    val newPlan: SparkPlan = plan.transformUp {
+      case operator@ShuffleExchangeExec(upper: HashPartitioning, child, shuffleOrigin)
+        if optimizeOutRepartition &&
+          (shuffleOrigin == REPARTITION_BY_COL || shuffleOrigin == REPARTITION_BY_NUM) =>
         def hasSemanticEqualPartitioning(partitioning: Partitioning): Boolean = {
           partitioning match {
             case lower: HashPartitioning if upper.semanticEquals(lower) => true
@@ -589,6 +592,7 @@ case class EnsureRequirements(
             case _ => false
           }
         }
+
         if (hasSemanticEqualPartitioning(child.outputPartitioning)) {
           child
         } else {
@@ -596,8 +600,9 @@ case class EnsureRequirements(
         }
 
       case operator: SparkPlan =>
-        val reordered = reorderJoinPredicates(operator)
-        val newChildren = ensureDistributionAndOrdering(
+        val reordered: SparkPlan = reorderJoinPredicates(operator)
+        // 获取当前节点要求子节点满足的分区方式和排序方式
+        val newChildren: Seq[SparkPlan] = ensureDistributionAndOrdering(
           Some(reordered),
           reordered.children,
           reordered.requiredChildDistribution,
@@ -607,7 +612,7 @@ case class EnsureRequirements(
     }
 
     if (requiredDistribution.isDefined) {
-      val shuffleOrigin = if (requiredDistribution.get.requiredNumPartitions.isDefined) {
+      val shuffleOrigin: ShuffleOrigin = if (requiredDistribution.get.requiredNumPartitions.isDefined) {
         REPARTITION_BY_NUM
       } else {
         REPARTITION_BY_COL

@@ -1811,6 +1811,7 @@ case class RepartitionByExpression(
     optNumPartitions: Option[Int]) extends RepartitionOperation with HasPartitionExpressions {
 
   override val partitioning: Partitioning = {
+    // partition 的分区方式
     if (numPartitions == 1) {
       SinglePartition
     } else {

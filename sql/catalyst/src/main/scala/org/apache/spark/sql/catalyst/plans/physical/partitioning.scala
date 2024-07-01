@@ -206,6 +206,8 @@ trait Partitioning {
    *
    * A [[Partitioning]] can never satisfy a [[Distribution]] if its `numPartitions` doesn't match
    * [[Distribution.requiredNumPartitions]].
+   *
+   * 判断子节点的输出，和当前节点要求的数据分布是否一致
    */
   final def satisfies(required: Distribution): Boolean = {
     required.requiredNumPartitions.forall(_ == numPartitions) && satisfies0(required)
@@ -301,6 +303,9 @@ case class HashPartitioning(expressions: Seq[Expression], numPartitions: Int)
   /**
    * Returns an expression that will produce a valid partition ID(i.e. non-negative and is less
    * than numPartitions) based on hashing expressions.
+   *
+   * new Murmur3Hash(expressions) 返回 hash value
+   * Pmod 计算 hash value % numPartition
    */
   def partitionIdExpression: Expression = Pmod(new Murmur3Hash(expressions), Literal(numPartitions))
 

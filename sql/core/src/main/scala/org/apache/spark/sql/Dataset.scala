@@ -3480,6 +3480,8 @@ class Dataset[T] private[sql](
       s"""Invalid partitionExprs specified: $sortOrders
          |For range partitioning use repartitionByRange(...) instead.
        """.stripMargin)
+    // partitionExprs: Seq[Column] 转换为 Seq[Expression]
+    // class Column(val expr: Expression)
     withTypedPlan {
       RepartitionByExpression(partitionExprs.map(_.expr), logicalPlan, numPartitions)
     }
